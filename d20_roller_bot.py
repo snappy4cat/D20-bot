@@ -1,12 +1,25 @@
 import random
 import time
 import telebot
+from flask import Flask
+import threading
+
+# Создаем микро-веб-сервер для обмана Render
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Бот работает стабильно!"
+
+def run_web_server():
+    # Запускаем сайт на порту 10000 (стандарт для Render)
+    app.run(host='0.0.0.0', port=10000)
 
 # --- НАСТРОЙКИ БОТА ---
 # 1. Замените на токен от @BotFather (в кавычках)
 TOKEN = "8978654674:AAFief139JWmHrZFwWsV05kvBooRgy_FtIg"
-# 2. Замените на цифровой ID фурри-игрока (число без кавычек)
-TARGET_USER_ID = 6903464097
+# 2. Замените на цифровой ID игрока (число без кавычек)
+TARGET_USER_ID = [6903464097, 7117523150, 7109011464]
 # 3. Юзернейм вашего бота с собачкой (в кавычках)
 BOT_USERNAME = "@D20rollerforchatbot"
 
@@ -15,86 +28,94 @@ bot = telebot.TeleBot(TOKEN)
 # Глобальный множитель проклятия (стартует с 1)
 mute_multiplier = 1
 
+# КАРТА ИСХОДОВ КУБИКА (Число: (Текст, Время мута в сек, Ссылка на гифку или None))
+# Вы можете менять эти тексты и время прямо тут в любой момент!
+D20_CONFIG = {
+    1: ("🎲 *1*! ЛОШАРА! \n oткисай в муте, уебок. Сутки пошли", 86400,
+        "https://files.catbox.moe/nzjpgo.mp4"),
+    2: ("🎲 *2*! Почти единица, потрогай траву, чепушило.. .", 43300, 'https://share.google/tJIph9J0Er95MCYN6'),
+    3: ("🎲 *3*! Ужасный бросок. Посиди-ка в муте.", 28800, 'https://files.catbox.moe/btlfqv.mp4'),
+    4: ("🎲 *4*! Невезение — это не оправдание, а твой образ жизни.", 21600, 'https://share.google/tJIph9J0Er95MCYN6'),
+    5: ("🎲 *5*! Попытка засчитана, но твоя статистика говорит сама за себя. Посиди в муте.", 10800, 'https://files.catbox.moe/btlfqv.mp4'),
+    6: ("🎲 *6*! Не повезло. 2 часа мута твои.", 7200, 'https://imgflip.com/gif/7abl83'),
+    7: ("🎲 *7*! На грани, но всё ещё провал. Мут.", 3600, 'https://imgflip.com/gif/7abl83'),
+    8: ("🎲 *8*! Чуть-чуть не хватило до сейва. Мут.", 1800, 'https://share.google/tJIph9J0Er95MCYN6'),
+    9: ("🎲 *9*! Не повезло! Отдыхаешь в муте.", 900, None),
+    10: ("🎲 *10*! Почти получилось, но все еще мут", 300, 'https://share.google/oniMy1GD18YAX9bTE'),
+    11: ("🎲 *11*! Твой бросок — как твоя жизнь: серый и посредственный", 0, None),
+    12: ("🎲 *12*! Вот вроде бросок и позорище, а вроде переступил порог", 0, None),
+    13: ("🎲 *13*! Чертова дюжина, но тебе повезло, мута нет.", 0, None),
+    14: ("🎲 *14*!К всеобщему сожалению у тебя сохранилось право голоса. Пока что....", 0, None),
+    15: ("🎲 *15*! Еще немного, и ты станешь кем-то. Но пока ты всего лишь цифра.", 0, None),
+    16: ("🎲 *16*! Уверенный успех! Можешь скинуть еще че-нибудь.Вдруг снова повезет", 0, 'https://share.google/J9Rycc3pi1u6PBSGB'),
+    17: ("🎲 *17*! Удача сегодня на твоей стороне.", 0, 'https://share.google/AWftdqCI3UmPxXXJB'),
+    18: ("🎲 *18*! Хороший результат, админы недовольно вздыхают.", 0, 'https://share.google/AWftdqCI3UmPxXXJB'),
+    19: ("🎲 *19*!Критический успех! Звёзды сошлись и судьба наконец намекает: пора купить себе дорогой фурсьют, а не позориться здесь.", 0, 'https://share.google/AWftdqCI3UmPxXXJB'),
+    20: ("🎲 *20*! ККритический успех! Сама Ткань Судьбы сплелась в твою пользу. Жаль только, что боги расточают свои дары на существо с повадками дворняги. Впрочем, носи свой фурри костюмчик с гордостью !", 15,
+         "https://files.catbox.moe/kcob7a.gif")
+}
 
-# ОБРАБОТЧИК ДЛЯ ГИФОК И ФОТО
+
+# 1. ОБРАБОТЧИК ДЛЯ ГИФОК И ФОТО (Переписан на словари с дилэями)
 @bot.message_handler(content_types=["photo", "animation"])
 def handle_media_game(message):
-    global mute_multiplier  # Разрешаем изменять глобальную переменную
+    global mute_multiplier
 
     # Проверяем, что медиа прислал именно наш "целевой" пользователь
-    if message.from_user.id == TARGET_USER_ID:
-
+    if message.from_user.id in TARGET_USER_ID:
         roll = random.randint(0, 20)
         current_time = int(time.time())
 
-        # ИСХОД 1: Выпала двойка — Множитель растет, мута нет
+        # Забираем настройки для выпавшего числа из нашего словаря D20_CONFIG
+        phrase, base_mute_time, gif_url = D20_CONFIG[roll]
+
+        # Шаг А: Сначала всегда отправляем базовый текст ответа бота
+        bot.reply_to(message, phrase, parse_mode="Markdown")
+        time.sleep(1.5)  # Дилэй 1.5 секунды для нагнетания драмы
+
+        # Шаг Б: Если для этого числа привязана гифка (например, для 1 или 20) — шлем её
+        if gif_url:
+            bot.send_animation(
+                chat_id=message.chat.id,
+                animation=gif_url,
+                reply_to_message_id=message.message_id
+            )
+            time.sleep(3.0)  # Дилэй 3 секунды, чтобы успели посмотреть гифку перед мутом
+
+        # Шаг В: Обрабатываем логику проклятия (для двойки)
         if roll == 0:
-            mute_multiplier += 1
-            bot.reply_to(
-                message,
-                f"🎲 Выпало: *0*! Мута нет, но тебе порвали туз... Следующий мут будет дольше обычного.... 🔮\n\n"
-                f"Твой следующий мут будет умножен на x{mute_multiplier}! Пока живи.",
-                parse_mode="Markdown",
-            )
-
-        # ИСХОД 2: Критический провал (Единица) — Сутки * Множитель
-        elif roll == 1:
-            base_duration = 86400  # 24 часа в секундах
-            final_duration = base_duration * mute_multiplier
-            days = mute_multiplier  # сколько суток сидеть в муте
-
-            bot.reply_to(
-                message,
-                f"🎲 НА КУБИКЕ 1! КРИТИЧЕСКИЙ ПРОВАЛ! 💀🦊\n\n"
-                f"Проклятие сработало на максимум! Твой мут умножен на x{mute_multiplier}.\n\n"
-                f"🔇 Ты отправляешься в изгнание на {days} сут(ок)!",
-                parse_mode="Markdown",
-            )
-
-            apply_mute(
+            mute_multiplier = 2
+            # Дополнительно пишем в чат актуальный уровень проклятия
+            bot.send_message(
                 message.chat.id,
-                message.from_user.id,
-                current_time + final_duration,
+                f"🔮 Текущее проклятие игрока увеличено до: **x{mute_multiplier}**!",
+                parse_mode="Markdown"
             )
-            mute_multiplier = 1  # Сбрасываем множитель после наказания
+            return  # Выходим из функции, мут давать не нужно
 
-        # ИСХОД 3: Обычный провал (от 3 до 10) — 1 минута * Множитель
-        elif 3 <= roll <= 10:
-            base_duration = 60  # 1 минута в секундах
-            final_duration = base_duration * mute_multiplier
-            minutes = mute_multiplier
+        # Шаг Г: Если число проигрышное — рассчитываем мут с учетом множителя
+        if base_mute_time > 0:
+            final_duration = base_mute_time * mute_multiplier
 
-            bot.reply_to(
-                message,
-                f"🎲 Выпало: *{roll}*.\n\n"
-                f"Не повезло! С учетом проклятия x{mute_multiplier} отдыхаешь в муте {minutes} мин.",
-                parse_mode="Markdown",
-            )
+            # Если сидим больше суток, пересчитаем красиво для текста
+            if final_duration >= 86400:
+                time_text = f"**{final_duration // 86400} сут(ок)**"
+            else:
+                time_text = f"**{final_duration // 60} мин**"
 
-            apply_mute(
+            # Пишем финальное предупреждение перед техническим мутом
+            bot.send_message(
                 message.chat.id,
-                message.from_user.id,
-                current_time + final_duration,
+                f" Поражение! мут составит: {time_text}.",
+                parse_mode="Markdown"
             )
-            mute_multiplier = 1  # Сбрасываем множитель после наказания
+            time.sleep(3.0)
 
-        # ИСХОД 4: Обычный успех (от 11 до 19) — Просто красивый сейв
-        elif 11 <= roll <= 19:
-            bot.reply_to(
-                message,
-                f"🎲 Выпало: *{roll}*.\n\n"
-                f"Проверка пройдена! В этот раз тебе повезло, живи. Чат замер до следующей гифки...",
-                parse_mode="Markdown",
-            )
+            # Выдаем реальный мут в Telegram
+            apply_mute(message.chat.id, message.from_user.id, current_time + final_duration)
 
-        # ИСХОД 5: Критический успех (Двадцать) — Триумф фурри-искусства
-        elif roll == 20:
-            bot.reply_to(
-                message,
-                f"🎲 Выпало: *20*! КРИТИЧЕСКИЙ УСПЕХ! ✨🦊\n\n"
-                f"Мастер кубика! Твоя гифка великолепна, никаких наказаний, чат признает твое величие!",
-                parse_mode="Markdown",
-            )
+            # Сбрасываем множитель обратно в 1
+            mute_multiplier = 1
 
 
 # ОБРАБОТЧИК ДЛЯ СТАНДАРТНОГО РОЛЛА ПО ПИНГУ В ЧАТЕ
@@ -124,6 +145,19 @@ def apply_mute(chat_id, user_id, until_date):
     except Exception as e:
         print(f"Ошибка мута (проверьте права админа у бота): {e}")
 
-# ЗАПУСК (Всегда в самом конце кода)
-print("Бот бдит.......")
-bot.polling(none_stop=True, timeout = 60, long_polling_timeout=20)
+
+# ЗАПУСК БОТА С АВТО-ПОДНЯТИЕМ
+if __name__ == "__main__":
+    # Запускаем обманный веб-сервер в отдельном фоновом потоке
+    server_thread = threading.Thread(target=run_web_server)
+    server_thread.daemon = True
+    server_thread.start()
+
+    print("Веб-сервер заглушки запущен. Включаем бота...")
+
+    while True:
+        try:
+            bot.polling(none_stop=True, timeout=60, long_polling_timeout=20)
+        except Exception as e:
+            print(f"Сетевой лаг замечен: {e}. Переподключение через 5 секунд...")
+            time.sleep(5)
