@@ -71,7 +71,6 @@ def handle_media_game(message):
 
         # Шаг А: Сначала всегда отправляем базовый текст ответа бота
         bot.reply_to(message, phrase, parse_mode="Markdown")
-        time.sleep(1.5)  # Дилэй 1.5 секунды для нагнетания драмы
 
         # Шаг Б: Если для этого числа привязана гифка (например, для 1 или 20) — шлем её
         if gif_url:
@@ -109,7 +108,7 @@ def handle_media_game(message):
                 f" Поражение! мут составит: {time_text}.",
                 parse_mode="Markdown"
             )
-            time.sleep(3.0)
+            time.sleep(1.0)
 
             # Выдаем реальный мут в Telegram
             apply_mute(message.chat.id, message.from_user.id, current_time + final_duration)
